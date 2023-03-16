@@ -98,18 +98,19 @@ class Video360Dataset(BaseDataset):
             assert not contraction, "Synthetic video dataset does not work with contraction."
             assert not ndc, "Synthetic video dataset does not work with NDC."
             if split == 'render':
-                num_tsteps = 120
-                dnerf_durations = {'hellwarrior': 100, 'mutant': 150, 'hook': 100, 'bouncingballs': 150, 'lego': 50, 'trex': 200, 'standup': 150, 'jumpingjacks': 200}
-                for scene in dnerf_durations.keys():
-                    if 'dnerf' in datadir and scene in datadir:
-                        num_tsteps = dnerf_durations[scene]
+                num_tsteps = 50
+                #dnerf_durations = {'hellwarrior': 100, 'mutant': 150, 'hook': 100, 'bouncingballs': 150, 'lego': 50, 'trex': 200, 'standup': 150, 'jumpingjacks': 200}
+                #for scene in dnerf_durations.keys():
+                    #if 'dnerf' in datadir and scene in datadir:
+                        #num_tsteps = dnerf_durations[scene]
                 render_poses = torch.stack([
                     generate_spherical_poses(angle, -30.0, 4.0)
                     for angle in np.linspace(-180, 180, num_tsteps + 1)[:-1]
-                ], 0)
+                ] * num_tsteps, 0)
                 imgs = None
                 self.poses = render_poses
-                timestamps = torch.linspace(0.0, 1.0, render_poses.shape[0])
+                timestamps = torch.linspace(0.0, 0.46, num_tsteps)
+                timestamps = timestamps.repeat_interleave(50)
                 _, transform = load_360video_frames(
                     datadir, 'train', max_cameras=self.max_cameras, max_tsteps=self.max_tsteps)
                 img_h, img_w = 800, 800
@@ -335,6 +336,8 @@ def fetch_360vid_info(frame: Dict[str, Any]):
 
 
 def load_360video_frames(datadir, split, max_cameras: int, max_tsteps: Optional[int]) -> Tuple[Any, Any]:
+    # below I force the split to be the training set (the 2nd half)
+    #split = 'train'
     with open(os.path.join(datadir, f"transforms_{split}.json"), 'r') as fp:
         meta = json.load(fp)
     frames = meta['frames']
@@ -343,6 +346,7 @@ def load_360video_frames(datadir, split, max_cameras: int, max_tsteps: Optional[
     pose_ids = set()
     fpath2poseid = defaultdict(list)
     for frame in frames:
+        # time t and the id of view image (e.g., r_5 means the 6th view)
         timestamp, pose_id = fetch_360vid_info(frame)
         timestamps.add(timestamp)
         pose_ids.add(pose_id)

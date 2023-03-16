@@ -1,10 +1,10 @@
 config = {
- 'expname': 'lego_hybrid',
+ 'expname': 'lego_hybrid_1st_half_plane',
  'logdir': './logs/syntheticdynamic',
  'device': 'cuda:0',
 
- 'data_downsample': 1.0,
- 'data_dirs': ['data/dnerf/data/lego'],
+ 'data_downsample': 1.0, # was 1.0
+ 'data_dirs': ['./plenoxels/data/dnerf/lego'],
  'contract': False,
  'ndc': False,
  'isg': False,
@@ -14,7 +14,8 @@ config = {
  'scene_bbox': [[-1.3, -1.3, -1.3], [1.3, 1.3, 1.3]],
 
  # Optimization settings
- 'num_steps': 30001,
+
+ 'num_steps': 30001, # was 30001
  'batch_size': 4096,
  'scheduler_type': 'warmup_cosine',
  'optim_type': 'adam',
@@ -31,8 +32,8 @@ config = {
  'time_smoothness_weight_proposal_net': 0.001,
 
  # Training settings
- 'save_every': 30000,
- 'valid_every': 30000,
+ 'save_every': 30000, # was 30000
+ 'valid_every': 30000, # was 30000
  'save_outputs': True,
  'train_fp16': True,
 

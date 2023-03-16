@@ -10,6 +10,7 @@ from plenoxels.utils.my_tqdm import tqdm
 from plenoxels.ops.image.io import write_video_to_file
 from plenoxels.runners.static_trainer import StaticTrainer
 from plenoxels.runners.video_trainer import VideoTrainer
+from plenoxels.ops.image.io import write_png
 
 
 @torch.no_grad()
@@ -20,9 +21,9 @@ def render_to_path(trainer: Union[VideoTrainer, StaticTrainer], extra_name: str 
         extra_name: String to append to the saved file-name
     """
     dataset = trainer.test_dataset
+    pb = tqdm(total=625, desc=f"Rendering scene")
+    #frames = []
 
-    pb = tqdm(total=100, desc=f"Rendering scene")
-    frames = []
     for img_idx, data in enumerate(dataset):
         ts_render = trainer.eval_step(data)
 
@@ -39,13 +40,18 @@ def render_to_path(trainer: Union[VideoTrainer, StaticTrainer], extra_name: str 
             .byte()
             .numpy()
         )
-        frames.append(preds_rgb)
+        #frames.append(preds_rgb)
+        out_name = f"step{img_idx}"
+        write_png(os.path.join('./logs/syntheticdynamic/lego_hybrid_1st_half_plane/renders_1st_625/', out_name + ".png"), preds_rgb)
         pb.update(1)
+
     pb.close()
 
-    out_fname = os.path.join(trainer.log_dir, f"rendering_path_{extra_name}.mp4")
-    write_video_to_file(out_fname, frames)
-    log.info(f"Saved rendering path with {len(frames)} frames to {out_fname}")
+
+
+    #out_fname = os.path.join(trainer.log_dir, f"rendering_path_{extra_name}.mp4")
+    #write_video_to_file(out_fname, frames)
+    #log.info(f"Saved rendering path with {len(frames)} frames to {out_fname}")
 
 
 def normalize_for_disp(img):

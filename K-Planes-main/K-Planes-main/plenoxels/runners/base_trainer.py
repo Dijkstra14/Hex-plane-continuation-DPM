@@ -266,7 +266,6 @@ class BaseTrainer(abc.ABC):
         if out_depth is not None:
             out_depth = self._normalize_01(out_depth)
             out_depth_np = (out_depth * 255.0).repeat(1, 1, 3).byte().numpy()
-
         if save_outputs:
             out_name = f"step{self.global_step}-{img_idx}"
             if name is not None and name != "":

@@ -149,7 +149,8 @@ def main():
         trainer.load_model(torch.load(checkpoint_path), training_needed=training_needed)
 
     if validate_only:
-        trainer.validate()
+        #trainer.validate()
+        trainer.generate()
     elif render_only:
         render_to_path(trainer, extra_name="")
     elif spacetime_only:

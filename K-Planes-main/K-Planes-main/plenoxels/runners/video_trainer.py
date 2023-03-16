@@ -7,7 +7,7 @@ from typing import Dict, MutableMapping, Union, Any, List
 import pandas as pd
 import torch
 import torch.utils.data
-
+from .provider import *
 from plenoxels.datasets.video_datasets import Video360Dataset
 from plenoxels.utils.ema import EMA
 from plenoxels.utils.my_tqdm import tqdm
@@ -52,7 +52,7 @@ class VideoTrainer(BaseTrainer):
             train_fp16=train_fp16,
             save_every=save_every,
             valid_every=valid_every,
-            save_outputs=False,  # False since we're saving video
+            save_outputs=True,  # False since we're saving video
             device=device,
             **kwargs)
 
@@ -61,13 +61,23 @@ class VideoTrainer(BaseTrainer):
         Note that here `data` contains a whole image. we need to split it up before tracing
         for memory constraints.
         """
+
         super().eval_step(data, **kwargs)
         batch_size = self.eval_batch_size
         with torch.cuda.amp.autocast(enabled=self.train_fp16), torch.no_grad():
+
+            # these two would be generated with provider.py function in dreamfusion
+            # out['rays_o'], out['rays_d'] = get_rays(
+            #camera_dirs, c2w, ndc=self.is_ndc, ndc_near=1.0, intrinsics=self.intrinsics,
+            # normalize_rd=True)
+
             rays_o = data["rays_o"]
             rays_d = data["rays_d"]
+            # this would be just randomly selected in the time indices
             timestamp = data["timestamps"]
+            # torch.tensor([[2.0, 6.0]])
             near_far = data["near_fars"].to(self.device)
+            # bg_color = torch.rand((1, 3), dtype=torch.float32, device=dev)
             bg_color = data["bg_color"]
             if isinstance(bg_color, torch.Tensor):
                 bg_color = bg_color.to(self.device)
@@ -149,6 +159,23 @@ class VideoTrainer(BaseTrainer):
         ]
         df = pd.DataFrame.from_records(val_metrics)
         df.to_csv(os.path.join(self.log_dir, f"test_metrics_step{self.global_step}.csv"))
+
+    def generate(self):
+        dataset = self.test_dataset
+        #dataset = NeRFDataset(opt, device=device, type='test', H=opt.H, W=opt.W, size=100).dataloader()
+        per_scene_metrics: Dict[str, Union[float, List]] = defaultdict(list)
+        pred_frames, out_depths = [], []
+        pb = tqdm(total=len(dataset), desc=f"Test scene ({dataset.name})")
+        for img_idx, data in enumerate(dataset):
+            preds = self.eval_step(data)
+            # I don't need the metrics for now
+            _, out_img, _ = self.evaluate_metrics(
+                data["imgs"], preds, dset=dataset, img_idx=img_idx, name=None,
+                save_outputs=self.save_outputs)
+            pred_frames.append(out_img)
+            pb.update(1)
+        pb.close()
+
 
     def get_save_dict(self):
         base_save_dict = super().get_save_dict()
