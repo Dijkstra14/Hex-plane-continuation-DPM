@@ -1,5 +1,5 @@
 config = {
- 'expname': 'lego_hybrid_1st_half_plane',
+ 'expname': 'contin_2nd_half_plane',
  'logdir': './logs/syntheticdynamic',
  'device': 'cuda:0',
 
@@ -65,4 +65,6 @@ config = {
   'output_coordinate_dim': 32,
   'resolution': [64, 64, 64, 25]
  }],
+ 'using_DPM_guidance':True,
+'DPM_dir':'./logs/model-10.pt',
 }

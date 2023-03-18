@@ -5,7 +5,7 @@ import math
 import os
 from copy import copy
 from typing import Iterable, Optional, Union, Dict, Tuple, Sequence, MutableMapping
-
+from torch.nn import functional as F
 import numpy as np
 import torch
 import torch.utils.data
@@ -34,6 +34,8 @@ class BaseTrainer(abc.ABC):
                  valid_every: int,
                  save_outputs: bool,
                  device: Union[str, torch.device],
+                 using_DPM_guidance: bool,
+                 guidance,
                  **kwargs):
         self.train_data_loader = train_data_loader
         self.num_steps = num_steps
@@ -59,7 +61,8 @@ class BaseTrainer(abc.ABC):
         self.criterion = torch.nn.MSELoss(reduction='mean')
         self.regularizers = self.init_regularizers(**self.extra_args)
         self.gscaler = torch.cuda.amp.GradScaler(enabled=self.train_fp16)
-
+        #self.using_DPM_guidance = using_DPM_guidance
+        self.guidance = guidance
         self.model.to(self.device)
 
     @abc.abstractmethod
@@ -83,6 +86,7 @@ class BaseTrainer(abc.ABC):
             recon_loss = self.criterion(fwd_out['rgb'], data['imgs'])
             # Regularization
             loss = recon_loss
+
             for r in self.regularizers:
                 reg_loss = r.regularize(self.model, model_out=fwd_out)
                 loss = loss + reg_loss
@@ -104,7 +108,6 @@ class BaseTrainer(abc.ABC):
                 self.loss_info[f"psnr"].update(-10 * math.log10(recon_loss_val))
                 for r in self.regularizers:
                     r.report(self.loss_info)
-
         return scale <= self.gscaler.get_scale()
 
     def post_step(self, progress_bar):

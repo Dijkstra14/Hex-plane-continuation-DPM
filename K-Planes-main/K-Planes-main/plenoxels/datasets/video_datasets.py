@@ -295,7 +295,6 @@ class Video360Dataset(BaseDataset):
         if imgs is not None and imgs.shape[-1] == 4:
             imgs = imgs[:, :3] * imgs[:, 3:] + bg_color * (1.0 - imgs[:, 3:])
         out['imgs'] = imgs
-
         return out
 
 

@@ -95,11 +95,12 @@ def main():
     p.add_argument('--validate-only', action='store_true')
     p.add_argument('--spacetime-only', action='store_true')
     p.add_argument('--config-path', type=str, required=True)
-    p.add_argument('--log-dir', type=str, default=None)
+    p.add_argument('--log-dir', type=str, default='./logs/syntheticdynamic/lego_hybrid_1st_half_plane/model.pth')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('override', nargs=argparse.REMAINDER)
-
+    p.add_argument('--using_DPM_guidance', type=bool, default=True)
     args = p.parse_args()
+
 
     # Set random seed
     np.random.seed(args.seed)
