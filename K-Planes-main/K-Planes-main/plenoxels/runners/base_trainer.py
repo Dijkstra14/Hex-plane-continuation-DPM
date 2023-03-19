@@ -177,6 +177,35 @@ class BaseTrainer(abc.ABC):
             pb.close()
             self.writer.close()
 
+    def distil(self):
+        batch_iter = iter(self.train_dataset_lodaer)
+        pb = tqdm(initial=self.global_step, total=self.num_steps)
+        self.step = 0
+        self.model.train()
+        while self.distill_steps < self.num_steps:
+            try:
+                data = next(batch_iter)
+
+            except StopIteration:
+                batch_iter = iter(self.train_data_loader)
+                data = next(batch_iter)
+            self._move_data_to_device(data)
+            with torch.cuda.amp.autocast(enabled=self.train_fp16):
+                fwd_out = self.model(
+                    data['rays_o'], data['rays_d'], bg_color=data['bg_color'],
+                    near_far=data['near_fars'], timestamps=data['timestamps'])
+            distil_loss = self.guidance(fwd_out['rgb'])
+            loss = distil_loss
+            for r in self.regularizers:
+                reg_loss = r.regularize(self.model, model_out=fwd_out)
+                loss = loss + reg_loss
+            pbar.set_description(f'distil_loss: {distil_loss:.4f}')
+            self.gscaler.scale(distil_loss).backward()
+            self.step += 1
+        pb.close()
+        self.generate()
+        self.save_model()
+
     def _move_data_to_device(self, data):
         data["rays_o"] = data["rays_o"].to(self.device)
         data["rays_d"] = data["rays_d"].to(self.device)
@@ -282,6 +311,9 @@ class BaseTrainer(abc.ABC):
 
     @abc.abstractmethod
     def validate(self):
+        pass
+    @abc.abstractmethod
+    def generate(self):
         pass
 
     def report_test_metrics(self, scene_metrics: Dict[str, Sequence[float]], extra_name: Optional[str]):

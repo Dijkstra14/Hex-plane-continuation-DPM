@@ -98,7 +98,7 @@ def main():
     p.add_argument('--log-dir', type=str, default='./logs/syntheticdynamic/lego_hybrid_1st_half_plane/model.pth')
     p.add_argument('--seed', type=int, default=0)
     p.add_argument('override', nargs=argparse.REMAINDER)
-    p.add_argument('--using_DPM_guidance', type=bool, default=True)
+    p.add_argument('--DPM_guidance', type=bool, default=True)
     args = p.parse_args()
 
 
@@ -128,6 +128,7 @@ def main():
     validate_only = args.validate_only
     render_only = args.render_only
     spacetime_only = args.spacetime_only
+    DPM_guidance = args.DPM_guidance
     if validate_only and render_only:
         raise ValueError("render_only and validate_only are mutually exclusive.")
     if render_only and spacetime_only:
@@ -141,7 +142,7 @@ def main():
     else:
         save_config(config)
 
-    data = load_data(model_type, validate_only=validate_only, render_only=render_only or spacetime_only, **config)
+    data = load_data(model_type, validate_only=validate_only, render_only=render_only or spacetime_only, DPM_guidance = DPM_guidance, **config)
     config.update(data)
     trainer = init_trainer(model_type, **config)
     if args.log_dir is not None:
@@ -156,9 +157,10 @@ def main():
         render_to_path(trainer, extra_name="")
     elif spacetime_only:
         decompose_space_time(trainer, extra_name="")
-    else:
+    elif not trainer.using_DPM_guidance:
         trainer.train()
-
+    else:
+        trainer.distil()
 
 if __name__ == "__main__":
     main()

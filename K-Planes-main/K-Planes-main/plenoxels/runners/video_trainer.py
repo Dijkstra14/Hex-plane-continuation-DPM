@@ -37,6 +37,7 @@ class VideoTrainer(BaseTrainer):
                  device: Union[str, torch.device],
                  using_DPM_guidance: bool,
                  DPM_dir: str,
+                 distill_steps,
                  **kwargs
                  ):
         self.train_dataset = tr_dset
@@ -45,6 +46,8 @@ class VideoTrainer(BaseTrainer):
         self.isg_step = isg_step
         self.save_video = save_outputs
         self.DPM_dir = DPM_dir
+        self.using_DPM_guidance = using_DPM_guidance
+        self.distill_steps = distill_steps
         # Switch to compute extra video metrics (FLIP, JOD)
         self.compute_video_metrics = False
         if using_DPM_guidance:
@@ -196,25 +199,6 @@ class VideoTrainer(BaseTrainer):
             pb.update(1)
         pb.close()
 
-    def distil(self):
-        dataset = self.test_dataset
-        self.test_dataset_lodaer = None
-        batch_iter = iter(self.test_dataset_lodaer)
-
-        #dataset = NeRFDataset(opt, device=device, type='test', H=opt.H, W=opt.W, size=100).dataloader()
-        per_scene_metrics: Dict[str, Union[float, List]] = defaultdict(list)
-        pred_frames, out_depths = [], []
-        pb = tqdm(total=len(dataset), desc=f"Test scene ({dataset.name})")
-        for img_idx, data in enumerate(dataset):
-            preds = self.eval_step(data)
-            # I don't need the metrics for now
-            _, out_img, _ = self.evaluate_metrics(
-                data["imgs"], preds, dset=dataset, img_idx=img_idx, name=None,
-                save_outputs=self.save_outputs)
-            pred_frames.append(out_img)
-            pb.update(1)
-        pb.close()
-
     def get_save_dict(self):
         base_save_dict = super().get_save_dict()
         return base_save_dict
@@ -259,16 +243,25 @@ def init_tr_data(data_downsample, data_dir, **kwargs):
     batch_size = kwargs['batch_size']
     using_DPM_guidance = kwargs.get('using_DPM_guidance', False)
     log.info(f"Loading Video360Dataset with downsample={data_downsample}")
-    tr_dset = Video360Dataset(
-                data_dir, split='train', downsample=data_downsample,
-                batch_size=batch_size,
-                max_cameras=kwargs.get('max_train_cameras', None),
-                max_tsteps=kwargs['max_train_tsteps'] if keyframes else None,
-                isg=isg, keyframes=keyframes, contraction=kwargs['contract'], ndc=kwargs['ndc'],
-                near_scaling=float(kwargs.get('near_scaling', 0)), ndc_far=float(kwargs.get('ndc_far', 0)),
-                scene_bbox=kwargs['scene_bbox'],
-            )
-
+    if not using_DPM_guidance:
+        tr_dset = Video360Dataset(
+                    data_dir, split='train', downsample=data_downsample,
+                    batch_size=batch_size,
+                    max_cameras=kwargs.get('max_train_cameras', None),
+                    max_tsteps=kwargs['max_train_tsteps'] if keyframes else None,
+                    isg=isg, keyframes=keyframes, contraction=kwargs['contract'], ndc=kwargs['ndc'],
+                    near_scaling=float(kwargs.get('near_scaling', 0)), ndc_far=float(kwargs.get('ndc_far', 0)),
+                    scene_bbox=kwargs['scene_bbox'],
+                )
+    else:
+        # split validate corresponds to the 2nd half of the hex plane
+        tr_dset = Video360Dataset(
+        data_dir, split='validate', downsample=data_downsample,
+        max_cameras=kwargs.get('max_test_cameras', None), max_tsteps=kwargs.get('max_test_tsteps', None),
+        contraction=kwargs['contract'], ndc=kwargs['ndc'],
+        near_scaling=float(kwargs.get('near_scaling', 0)), ndc_far=float(kwargs.get('ndc_far', 0)),
+        scene_bbox=kwargs['scene_bbox'],
+    )
     if ist:
         tr_dset.switch_isg2ist()  # this should only happen in case we're reloading
 

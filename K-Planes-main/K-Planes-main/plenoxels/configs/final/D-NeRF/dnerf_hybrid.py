@@ -67,4 +67,4 @@ config = {
  }],
  'using_DPM_guidance':True,
 'DPM_dir':'./logs/model-10.pt',
-}
+'distill_steps': 10000}
