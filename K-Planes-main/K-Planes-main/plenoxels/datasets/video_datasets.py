@@ -98,22 +98,28 @@ class Video360Dataset(BaseDataset):
             assert not contraction, "Synthetic video dataset does not work with contraction."
             assert not ndc, "Synthetic video dataset does not work with NDC."
             if split == 'render':
-                num_tsteps = 50
+                num_tsteps = 100
                 #dnerf_durations = {'hellwarrior': 100, 'mutant': 150, 'hook': 100, 'bouncingballs': 150, 'lego': 50, 'trex': 200, 'standup': 150, 'jumpingjacks': 200}
                 #for scene in dnerf_durations.keys():
                     #if 'dnerf' in datadir and scene in datadir:
                         #num_tsteps = dnerf_durations[scene]
+
+                #render_poses = torch.stack([
+                #   generate_spherical_poses(angle, -30.0, 4.0)
+                #    for angle in np.linspace(-180, 180, num_tsteps + 1)[:-1]
+                #] * num_tsteps, 0)
                 render_poses = torch.stack([
-                    generate_spherical_poses(angle, -30.0, 4.0)
-                    for angle in np.linspace(-180, 180, num_tsteps + 1)[:-1]
-                ] * num_tsteps, 0)
+                   generate_spherical_poses(angle, -30.0, 4.0)
+                   for angle in np.linspace(-180, 180, num_tsteps + 1)[:-1]
+                ], 0)
+
                 imgs = None
                 self.poses = render_poses
-                timestamps = torch.linspace(0.0, 0.46, num_tsteps)
-                timestamps = timestamps.repeat_interleave(50)
+                timestamps = torch.linspace(0.0, 1.0, num_tsteps)
+                #timestamps = timestamps.repeat_interleave(50)
                 _, transform = load_360video_frames(
                     datadir, 'train', max_cameras=self.max_cameras, max_tsteps=self.max_tsteps)
-                img_h, img_w = 800, 800
+                img_h, img_w = 200, 200
             else:
                 frames, transform = load_360video_frames(
                     datadir, split, max_cameras=self.max_cameras, max_tsteps=self.max_tsteps)

@@ -47,7 +47,7 @@ class VideoTrainer(BaseTrainer):
         self.save_video = save_outputs
         self.DPM_dir = DPM_dir
         self.using_DPM_guidance = using_DPM_guidance
-        self.distill_steps = distill_steps
+
         # Switch to compute extra video metrics (FLIP, JOD)
         self.compute_video_metrics = False
         if using_DPM_guidance:
@@ -65,7 +65,11 @@ class VideoTrainer(BaseTrainer):
                 loss_type='l1'  # L1 or L2
             ).cuda()
             diffusion.load_state_dict(torch.load(self.DPM_dir)['model'])
+            guidance = diffusion
+        else:
+            guidance = None
         super().__init__(
+            tr_dset = tr_dset,
             train_data_loader=tr_loader,
             num_steps=num_steps,
             logdir=logdir,
@@ -76,9 +80,9 @@ class VideoTrainer(BaseTrainer):
             save_outputs=True,  # False since we're saving video
             device=device,
             using_DPM_guidance=using_DPM_guidance,
-            guidance=diffusion,
+            guidance=guidance,
             **kwargs)
-
+        self.distill_steps = distill_steps
     def eval_step(self, data, **kwargs) -> MutableMapping[str, torch.Tensor]:
         """
         Note that here `data` contains a whole image. we need to split it up before tracing
@@ -88,11 +92,6 @@ class VideoTrainer(BaseTrainer):
         super().eval_step(data, **kwargs)
         batch_size = self.eval_batch_size
         with torch.cuda.amp.autocast(enabled=self.train_fp16), torch.no_grad():
-
-            # these two would be generated with provider.py function in dreamfusion
-            # out['rays_o'], out['rays_d'] = get_rays(
-            #camera_dirs, c2w, ndc=self.is_ndc, ndc_near=1.0, intrinsics=self.intrinsics,
-            # normalize_rd=True)
 
             rays_o = data["rays_o"]
             rays_d = data["rays_d"]
@@ -261,15 +260,18 @@ def init_tr_data(data_downsample, data_dir, **kwargs):
         contraction=kwargs['contract'], ndc=kwargs['ndc'],
         near_scaling=float(kwargs.get('near_scaling', 0)), ndc_far=float(kwargs.get('ndc_far', 0)),
         scene_bbox=kwargs['scene_bbox'],
-    )
+                )
     if ist:
         tr_dset.switch_isg2ist()  # this should only happen in case we're reloading
 
     g = torch.Generator()
     g.manual_seed(0)
-    tr_loader = torch.utils.data.DataLoader(
+    if not using_DPM_guidance:
+        tr_loader = torch.utils.data.DataLoader(
         tr_dset, batch_size=None, num_workers=4,  prefetch_factor=4, pin_memory=True,
         worker_init_fn=init_dloader_random, generator=g)
+    else:
+        tr_loader = None
     return {"tr_loader": tr_loader, "tr_dset": tr_dset}
 
 

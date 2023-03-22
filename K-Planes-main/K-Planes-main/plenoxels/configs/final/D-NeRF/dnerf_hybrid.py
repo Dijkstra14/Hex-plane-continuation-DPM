@@ -3,7 +3,7 @@ config = {
  'logdir': './logs/syntheticdynamic',
  'device': 'cuda:0',
 
- 'data_downsample': 1.0, # was 1.0
+ 'data_downsample': 4.0, # was 1.0
  'data_dirs': ['./plenoxels/data/dnerf/lego'],
  'contract': False,
  'ndc': False,
@@ -19,7 +19,7 @@ config = {
  'batch_size': 4096,
  'scheduler_type': 'warmup_cosine',
  'optim_type': 'adam',
- 'lr': 0.01,
+ 'lr': 0.001,
 
  # Regularization
  'distortion_loss_weight': 0.00,
@@ -65,6 +65,6 @@ config = {
   'output_coordinate_dim': 32,
   'resolution': [64, 64, 64, 25]
  }],
- 'using_DPM_guidance':True,
+ 'using_DPM_guidance': True,
 'DPM_dir':'./logs/model-10.pt',
-'distill_steps': 10000}
+'distill_steps': 100000}

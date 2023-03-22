@@ -22,6 +22,7 @@ from tqdm.auto import tqdm
 from ema_pytorch import EMA
 
 from accelerate import Accelerator
+from torch.cuda.amp import custom_bwd, custom_fwd
 
 # constants
 
@@ -258,6 +259,20 @@ class Attention(nn.Module):
         return self.to_out(out)
 
 # model
+class SpecifyGradient(torch.autograd.Function):
+    @staticmethod
+    @custom_fwd
+    def forward(ctx, input_tensor, gt_grad):
+        ctx.save_for_backward(gt_grad)
+        # we return a dummy value 1, which will be scaled by amp's scaler so we get the scale in backward.
+        return torch.ones([1], device=input_tensor.device, dtype=input_tensor.dtype)
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, grad_scale):
+        gt_grad, = ctx.saved_tensors
+        gt_grad = gt_grad * grad_scale
+        return gt_grad, None
 
 class Unet(nn.Module):
     def __init__(
@@ -665,10 +680,9 @@ class GaussianDiffusion(nn.Module):
 
     def p_losses(self, x_start, t, noise = None):
         b, c, h, w = x_start.shape
+
         noise = default(noise, lambda: torch.randn_like(x_start))
-
         # noise sample
-
         x = self.q_sample(x_start = x_start, t = t, noise = noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
@@ -682,8 +696,8 @@ class GaussianDiffusion(nn.Module):
                 x_self_cond.detach_()
 
         # predict and take gradient step
-
-        model_out = self.model(x, t, x_self_cond)
+        with torch.no_grad():
+            model_out = self.model(x, t, x_self_cond)
 
         if self.objective == 'pred_noise':
             target = noise
@@ -695,19 +709,26 @@ class GaussianDiffusion(nn.Module):
         else:
             raise ValueError(f'unknown objective {self.objective}')
 
-        loss = self.loss_fn(model_out, target, reduction = 'none')
-        loss = reduce(loss, 'b ... -> b (...)', 'mean')
-
-        loss = loss * extract(self.p2_loss_weight, t, loss.shape)
-        return loss.mean()
+        dpm_loss = self.loss_fn(model_out, target, reduction = 'none')
+        dpm_loss = reduce(dpm_loss, 'b ... -> b (...)', 'mean')
+        dpm_loss = dpm_loss * extract(self.alphas_cumprod, t, dpm_loss.shape)
+        #dpm_loss = dpm_loss * extract(self.p2_loss_weight, t, dpm_loss.shape)
+        grad = extract(self.alphas_cumprod, t, model_out.shape) * (model_out - target)
+        #grad = extract(self.p2_loss_weight, t, model_out.shape) * (model_out - target)
+        grad = torch.nan_to_num(grad)
+        #print(grad.mean())
+        loss = SpecifyGradient.apply(x_start, grad)
+        return loss, dpm_loss.mean()
 
     def forward(self, img, *args, **kwargs):
+        #img = F.interpolate(img, (200, 200), mode='bilinear', align_corners=False)
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         img = normalize_to_neg_one_to_one(img)
-        return self.p_losses(img, t, *args, **kwargs)
+        p_losses, dpm_loss = self.p_losses(img, t, *args, **kwargs)
+        return p_losses, dpm_loss
 
 # dataset classes
 

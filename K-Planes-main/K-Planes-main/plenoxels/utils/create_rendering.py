@@ -21,7 +21,7 @@ def render_to_path(trainer: Union[VideoTrainer, StaticTrainer], extra_name: str 
         extra_name: String to append to the saved file-name
     """
     dataset = trainer.test_dataset
-    pb = tqdm(total=625, desc=f"Rendering scene")
+    pb = tqdm(total=100, desc=f"Rendering scene")
     #frames = []
 
     for img_idx, data in enumerate(dataset):
@@ -42,7 +42,7 @@ def render_to_path(trainer: Union[VideoTrainer, StaticTrainer], extra_name: str 
         )
         #frames.append(preds_rgb)
         out_name = f"step{img_idx}"
-        write_png(os.path.join('./logs/syntheticdynamic/lego_hybrid_1st_half_plane/renders_1st_625/', out_name + ".png"), preds_rgb)
+        write_png(os.path.join('./logs/syntheticdynamic/contin_2nd_half_plane/renders/', out_name + ".png"), preds_rgb)
         pb.update(1)
 
     pb.close()

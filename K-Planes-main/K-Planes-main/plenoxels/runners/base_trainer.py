@@ -21,10 +21,28 @@ from plenoxels.runners.regularization import Regularizer
 from plenoxels.ops.lr_scheduling import (
     get_cosine_schedule_with_warmup, get_step_schedule_with_warmup
 )
+from copy import deepcopy
+from torch.cuda.amp import custom_bwd, custom_fwd
 
+
+class SpecifyGradient(torch.autograd.Function):
+    @staticmethod
+    @custom_fwd
+    def forward(ctx, input_tensor, gt_grad):
+        ctx.save_for_backward(gt_grad)
+        # we return a dummy value 1, which will be scaled by amp's scaler so we get the scale in backward.
+        return torch.ones([1], device=input_tensor.device, dtype=input_tensor.dtype)
+
+    @staticmethod
+    @custom_bwd
+    def backward(ctx, grad_scale):
+        gt_grad, = ctx.saved_tensors
+        gt_grad = gt_grad * grad_scale
+        return gt_grad, None
 
 class BaseTrainer(abc.ABC):
     def __init__(self,
+                 tr_dset: torch.utils.data.TensorDataset,
                  train_data_loader: Iterable,
                  num_steps: int,
                  logdir: str,
@@ -34,9 +52,10 @@ class BaseTrainer(abc.ABC):
                  valid_every: int,
                  save_outputs: bool,
                  device: Union[str, torch.device],
-                 using_DPM_guidance: bool,
                  guidance,
                  **kwargs):
+        self.train_dataset = tr_dset
+        self.distill_steps = None
         self.train_data_loader = train_data_loader
         self.num_steps = num_steps
         self.train_fp16 = train_fp16
@@ -176,33 +195,89 @@ class BaseTrainer(abc.ABC):
         finally:
             pb.close()
             self.writer.close()
+    def compare_models(self, model_1, model_2):
+        models_differ = 0
+        for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
+            if torch.equal(key_item_1[1], key_item_2[1]):
+                pass
+            else:
+                models_differ += 1
+                if (key_item_1[0] == key_item_2[0]):
+                    print('Mismtach found at', key_item_1[0])
+                else:
+                    raise Exception
+        if models_differ == 0:
+            print('Models match perfectly! :)')
 
     def distil(self):
-        batch_iter = iter(self.train_dataset_lodaer)
-        pb = tqdm(initial=self.global_step, total=self.num_steps)
-        self.step = 0
-        self.model.train()
-        while self.distill_steps < self.num_steps:
-            try:
-                data = next(batch_iter)
+        batch_size = 4000
+        #batch_iter = iter(self.train_data_loader)
+        dataset = self.train_dataset
+        self.steps = 0
+        total_loss = 0.0
+        init_model = deepcopy(self.model)
+        keys = []
+        #for k, v in self.model.state_dict().items():
+        #    keys.append(k)
+        #print(self.model.state_dict()[keys[0]].grad)
+        with tqdm(initial=self.steps, total=self.distill_steps) as pd: #torch.cuda.amp.autocast(enabled=self.train_fp16):
+            while self.steps < self.distill_steps:
+                for img_idx, data in enumerate(dataset):
+                    rays_o = data["rays_o"]
+                    rays_d = data["rays_d"]
+                    # this would be just randomly selected in the time indices
+                    timestamp = data["timestamps"]
+                    # torch.tensor([[2.0, 6.0]])
+                    near_far = data["near_fars"].to(self.device)
+                    # bg_color = torch.rand((1, 3), dtype=torch.float32, device=dev)
+                    bg_color = data["bg_color"]
+                    if isinstance(bg_color, torch.Tensor):
+                        bg_color = bg_color.to(self.device)
+                    self.model.train()
+                    loss = 0.0
+                    #reg_loss = 0.0
+                    preds = []
+                    for b in range(math.ceil(rays_o.shape[0] / batch_size)):
+                        rays_o_b = rays_o[b * batch_size: (b + 1) * batch_size].to(self.device)
+                        rays_d_b = rays_d[b * batch_size: (b + 1) * batch_size].to(self.device)
+                        timestamps_d_b = timestamp.expand(rays_o_b.shape[0]).to(self.device)
+                        outputs = self.model(
+                            rays_o_b, rays_d_b, timestamps=timestamps_d_b, bg_color=bg_color,
+                            near_far=near_far)
+                        #for r in self.regularizers:
+                            #reg_loss += r.regularize(self.model, model_out=outputs)
+                        preds.append(outputs['rgb']) # (40000 * 3)
+                    fwd_out = torch.cat(preds, 0).transpose(0,1).unsqueeze(0).view(1,3,200,200)
+                    distil_loss, dpm_loss = self.guidance(fwd_out)
+                    #distil_loss = SpecifyGradient.apply(fwd_out, grad)
+                    loss = loss + distil_loss
+                    total_loss += dpm_loss.item()
+                    self.writer.add_scalar(f"dpm_loss", dpm_loss.item(), self.steps)
+                    self.writer.add_scalar(f"total_avg_loss", total_loss/(self.steps + 1), self.steps)
+                    pd.set_description(f'dpm_loss: {dpm_loss:.4f} ({total_loss/(self.steps+1):.4f})')
+                    self.optimizer.zero_grad(set_to_none=True)
+                    self.gscaler.scale(loss).backward()
+                    #loss.backward()
+                    #for k, v in self.model.state_dict().items():
+                    #    print(k, v.grad)
+                    #print(fwd_out.grad)
+                    #print(loss.grad)
 
-            except StopIteration:
-                batch_iter = iter(self.train_data_loader)
-                data = next(batch_iter)
-            self._move_data_to_device(data)
-            with torch.cuda.amp.autocast(enabled=self.train_fp16):
-                fwd_out = self.model(
-                    data['rays_o'], data['rays_d'], bg_color=data['bg_color'],
-                    near_far=data['near_fars'], timestamps=data['timestamps'])
-            distil_loss = self.guidance(fwd_out['rgb'])
-            loss = distil_loss
-            for r in self.regularizers:
-                reg_loss = r.regularize(self.model, model_out=fwd_out)
-                loss = loss + reg_loss
-            pbar.set_description(f'distil_loss: {distil_loss:.4f}')
-            self.gscaler.scale(distil_loss).backward()
-            self.step += 1
-        pb.close()
+                    self.gscaler.step(self.optimizer)
+                    #scale = self.gscaler.get_scale()
+                    self.gscaler.update()
+                    #self.timer.check("scaler-step")
+                    #if scale <= self.gscaler.get_scale() and self.scheduler is not None:
+                        #self.scheduler.step()
+
+                    #self.optimizer.step()
+                    self.steps += 1
+                    pd.update(1)
+
+                    #self.compare_models(init_model, self.model)
+                    if self.steps == self.distill_steps:
+                        break
+            pd.close()
         self.generate()
         self.save_model()
 
