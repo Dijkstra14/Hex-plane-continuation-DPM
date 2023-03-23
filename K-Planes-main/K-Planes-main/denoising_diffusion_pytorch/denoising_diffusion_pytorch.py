@@ -708,8 +708,9 @@ class GaussianDiffusion(nn.Module):
             target = v
         else:
             raise ValueError(f'unknown objective {self.objective}')
-        #with torch.no_grad():
-        #    x_start = self.predict_start_from_noise(x, t, model_out)
+        with torch.no_grad():
+            x_start = self.predict_start_from_noise(x, t, model_out)
+            x_start = unnormalize_to_zero_to_one(x_start)
         with torch.no_grad():
             dpm_loss = self.loss_fn(model_out, target, reduction = 'none')
             dpm_loss = reduce(dpm_loss, 'b ... -> b (...)', 'mean')
@@ -723,7 +724,7 @@ class GaussianDiffusion(nn.Module):
 
         #w = extract(self.p2_loss_weight, t, model_out.shape)
         #w = (1 - extract(self.alphas_cumprod, t, model_out.shape))
-        return grad, dpm_loss.mean()
+        return grad, dpm_loss.mean(), x_start
 
     def forward(self, img, *args, **kwargs):
         #img = img.clamp(0, 1)
@@ -733,9 +734,9 @@ class GaussianDiffusion(nn.Module):
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
         #img = normalize_to_neg_one_to_one(img)
-        grad, dpm_loss = self.p_losses(img, t, *args, **kwargs)
+        grad, dpm_loss, x_start = self.p_losses(img, t, *args, **kwargs)
 
-        return grad, dpm_loss
+        return grad, dpm_loss, x_start
 
 # dataset classes
 

@@ -252,12 +252,12 @@ class BaseTrainer(abc.ABC):
                         preds.append(outputs['rgb']) # (40000 * 3)
                     fwd_out = torch.cat(preds, 0).transpose(0,1).unsqueeze(0).view(1,3,200,200)
                     img = self.normalize_to_neg_one_to_one(fwd_out)
-                    grad, dpm_loss = self.guidance(img)
+                    grad, dpm_loss, x_start = self.guidance(img)
                     distil_loss = SpecifyGradient.apply(img, grad)
                     #distil_loss = (w * (fwd_out-x_start)**2).mean()
                     loss = loss + distil_loss
                     total_loss += dpm_loss.item()
-                    """
+
                     if self.global_step % 100 == 0:
                         img_gt = (
                             x_start
@@ -267,17 +267,17 @@ class BaseTrainer(abc.ABC):
                         )
                         img_gt = torch.nan_to_num(img_gt, nan=0.0)
                         img_gt_np: np.ndarray = (img_gt * 255.0).byte().numpy()
-                        self.writer.add_image(str(self.global_step), img_gt_np)
-                    """
-                    img_pred = (
-                        fwd_out
-                        .reshape(3, 200, 200)
-                        .cpu()
-                        .clamp(0, 1)
-                    )
-                    img_pred = torch.nan_to_num(img_pred, nan=0.0)
-                    img_pred_np: np.ndarray = (img_pred * 255.0).byte().numpy()
-                    self.writer.add_image(str(self.global_step), img_pred_np)
+                        self.writer.add_image(str(self.global_step), 'gt'+img_gt_np)
+
+                        img_pred = (
+                            fwd_out
+                            .reshape(3, 200, 200)
+                            .cpu()
+                            .clamp(0, 1)
+                        )
+                        img_pred = torch.nan_to_num(img_pred, nan=0.0)
+                        img_pred_np: np.ndarray = (img_pred * 255.0).byte().numpy()
+                        self.writer.add_image(str(self.global_step), 'pred'+img_pred_np)
 
                     self.writer.add_scalar(f"dpm_loss", dpm_loss.item(), self.global_step)
                     self.writer.add_scalar(f"total_avg_loss", total_loss/(self.global_step + 1), self.global_step)
