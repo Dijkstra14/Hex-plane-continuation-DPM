@@ -218,7 +218,7 @@ class BaseTrainer(abc.ABC):
         dataset = self.train_dataset
         self.global_step = 0
         total_loss = 0.0
-        init_model = deepcopy(self.model)
+        #init_model = deepcopy(self.model)
         keys = []
         #for k, v in self.model.state_dict().items():
         #    keys.append(k)
@@ -307,7 +307,7 @@ class BaseTrainer(abc.ABC):
                     self.global_step += 1
                     pd.update(1)
 
-                    self.compare_models(init_model, self.model)
+                    #self.compare_models(init_model, self.model)
                     if self.global_step == self.distill_steps:
                         break
             pd.close()
