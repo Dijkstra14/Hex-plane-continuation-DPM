@@ -195,6 +195,9 @@ class BaseTrainer(abc.ABC):
         finally:
             pb.close()
             self.writer.close()
+
+    def normalize_to_neg_one_to_one(self, img):
+        return img * 2 - 1
     def compare_models(self, model_1, model_2):
         models_differ = 0
         for key_item_1, key_item_2 in zip(model_1.state_dict().items(), model_2.state_dict().items()):
@@ -249,27 +252,30 @@ class BaseTrainer(abc.ABC):
                             #reg_loss += r.regularize(self.model, model_out=outputs)
                         preds.append(outputs['rgb']) # (40000 * 3)
                     fwd_out = torch.cat(preds, 0).transpose(0,1).unsqueeze(0).view(1,3,200,200)
-                    x_start, w = self.guidance(fwd_out)
-                    #distil_loss = SpecifyGradient.apply(fwd_out, grad)
+                    img = self.normalize_to_neg_one_to_one(fwd_out)
+                    grad, dpm_loss = self.guidance(img)
+                    distil_loss = SpecifyGradient.apply(img, grad)
                     #distil_loss = (w * (fwd_out-x_start)**2).mean()
-                    distil_loss = self.criterion(fwd_out, x_start)
                     loss = loss + distil_loss
-                    total_loss += distil_loss.item()
-                    img_gt = (
-                                x_start
-                                .reshape(3, 200, 200)
-                                .cpu()
-                                .clamp(0, 1)
-                             )
-                    img_gt = torch.nan_to_num(img_gt, nan=0.0)
-                    img_gt_np: np.ndarray = (img_gt * 255.0).byte().numpy()
+                    total_loss += dpm_loss.item()
+                    """
                     if self.global_step % 100 == 0:
+                        img_gt = (
+                            x_start
+                            .reshape(3, 200, 200)
+                            .cpu()
+                            .clamp(0, 1)
+                        )
+                        img_gt = torch.nan_to_num(img_gt, nan=0.0)
+                        img_gt_np: np.ndarray = (img_gt * 255.0).byte().numpy()
                         self.writer.add_image(str(self.global_step), img_gt_np)
-                    self.writer.add_scalar(f"dpm_loss", distil_loss.item(), self.global_step)
+                    """
+                    self.writer.add_scalar(f"dpm_loss", dpm_loss.item(), self.global_step)
                     self.writer.add_scalar(f"total_avg_loss", total_loss/(self.global_step + 1), self.global_step)
-                    pd.set_description(f'dpm_loss: {distil_loss:.4f} ({total_loss/(self.global_step+1):.4f})')
+                    pd.set_description(f'dpm_loss: {dpm_loss:.4f} ({total_loss/(self.global_step+1):.4f})')
                     self.optimizer.zero_grad(set_to_none=True)
-                    loss.backward()
+                    distil_loss.backward()
+
                     #print(loss.requires_grad)
                     #self.gscaler.scale(loss).backward()
 

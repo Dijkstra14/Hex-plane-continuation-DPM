@@ -678,12 +678,12 @@ class GaussianDiffusion(nn.Module):
         else:
             raise ValueError(f'invalid loss type {self.loss_type}')
 
-    def p_losses(self, x_start, t, noise = None):
-        b, c, h, w = x_start.shape
+    def p_losses(self, img, t, noise = None):
+        b, c, h, w = img.shape
 
-        noise = default(noise, lambda: torch.randn_like(x_start))
+        noise = default(noise, lambda: torch.randn_like(img))
         # noise sample
-        x = self.q_sample(x_start = x_start, t = t, noise = noise)
+        x = self.q_sample(x_start = img, t = t, noise = noise)
 
         # if doing self-conditioning, 50% of the time, predict x_start from current set of times
         # and condition with unet with that
@@ -702,41 +702,40 @@ class GaussianDiffusion(nn.Module):
         if self.objective == 'pred_noise':
             target = noise
         elif self.objective == 'pred_x0':
-            target = x_start
+            target = img
         elif self.objective == 'pred_v':
-            v = self.predict_v(x_start, t, noise)
+            v = self.predict_v(img, t, noise)
             target = v
         else:
             raise ValueError(f'unknown objective {self.objective}')
-
-        x_start = self.predict_start_from_noise(x, t, model_out)
-        """
-        dpm_loss = self.loss_fn(model_out, target, reduction = 'none')
-        dpm_loss = reduce(dpm_loss, 'b ... -> b (...)', 'mean')
-        dpm_loss = dpm_loss * (1-extract(self.alphas_cumprod, t, dpm_loss.shape))
+        #with torch.no_grad():
+        #    x_start = self.predict_start_from_noise(x, t, model_out)
+        with torch.no_grad():
+            dpm_loss = self.loss_fn(model_out, target, reduction = 'none')
+            dpm_loss = reduce(dpm_loss, 'b ... -> b (...)', 'mean')
+            dpm_loss = dpm_loss * (1-extract(self.alphas_cumprod, t, dpm_loss.shape))
         #dpm_loss = dpm_loss * extract(self.p2_loss_weight, t, dpm_loss.shape)
         grad = (1 - extract(self.alphas_cumprod, t, model_out.shape)) * (model_out - target)
         #grad = extract(self.p2_loss_weight, t, model_out.shape) * (model_out - target)
-        grad = grad.clamp(-10, 10)
+        #grad = grad.clamp(-10, 10)
         grad = torch.nan_to_num(grad)
-        #print(grad.mean())
-        loss = SpecifyGradient.apply(x_start, grad)
-        """
+        #loss = SpecifyGradient.apply(img, grad)
+
         #w = extract(self.p2_loss_weight, t, model_out.shape)
-        w = (1 - extract(self.alphas_cumprod, t, model_out.shape))
-        return x_start, w
+        #w = (1 - extract(self.alphas_cumprod, t, model_out.shape))
+        return grad, dpm_loss.mean()
 
     def forward(self, img, *args, **kwargs):
-        img = img.clamp(0, 1)
+        #img = img.clamp(0, 1)
         #img = F.interpolate(img, (200, 200), mode='bilinear', align_corners=False)
         b, c, h, w, device, img_size, = *img.shape, img.device, self.image_size
         assert h == img_size and w == img_size, f'height and width of image must be {img_size}'
         t = torch.randint(0, self.num_timesteps, (b,), device=device).long()
 
-        img = normalize_to_neg_one_to_one(img)
-        x_start, w = self.p_losses(img, t, *args, **kwargs)
+        #img = normalize_to_neg_one_to_one(img)
+        grad, dpm_loss = self.p_losses(img, t, *args, **kwargs)
 
-        return unnormalize_to_zero_to_one(x_start), w
+        return grad, dpm_loss
 
 # dataset classes
 
