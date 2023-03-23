@@ -19,7 +19,7 @@ config = {
  'batch_size': 4096,
  'scheduler_type': 'warmup_cosine',
  'optim_type': 'adam',
- 'lr': 0.001,
+ 'lr': 0.1,
 
  # Regularization
  'distortion_loss_weight': 0.00,
@@ -67,4 +67,4 @@ config = {
  }],
  'using_DPM_guidance': True,
 'DPM_dir':'./logs/model-10.pt',
-'distill_steps': 100000}
+'distill_steps': 30001}

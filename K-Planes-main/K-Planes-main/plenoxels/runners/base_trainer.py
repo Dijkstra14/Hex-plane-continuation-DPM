@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.utils.data
 from torch.utils.tensorboard import SummaryWriter
-
+from PIL import Image
 from plenoxels.utils.timer import CudaTimer
 from plenoxels.utils.ema import EMA
 from plenoxels.models.lowrank_model import LowrankModel
@@ -213,15 +213,16 @@ class BaseTrainer(abc.ABC):
         batch_size = 4000
         #batch_iter = iter(self.train_data_loader)
         dataset = self.train_dataset
-        self.steps = 0
+        if self.global_step is None:
+            self.global_step = 0
         total_loss = 0.0
         init_model = deepcopy(self.model)
         keys = []
         #for k, v in self.model.state_dict().items():
         #    keys.append(k)
         #print(self.model.state_dict()[keys[0]].grad)
-        with tqdm(initial=self.steps, total=self.distill_steps) as pd: #torch.cuda.amp.autocast(enabled=self.train_fp16):
-            while self.steps < self.distill_steps:
+        with tqdm(initial=self.global_step, total=self.distill_steps) as pd: #torch.cuda.amp.autocast(enabled=self.train_fp16):
+            while self.global_step < self.distill_steps:
                 for img_idx, data in enumerate(dataset):
                     rays_o = data["rays_o"]
                     rays_d = data["rays_d"]
@@ -248,34 +249,51 @@ class BaseTrainer(abc.ABC):
                             #reg_loss += r.regularize(self.model, model_out=outputs)
                         preds.append(outputs['rgb']) # (40000 * 3)
                     fwd_out = torch.cat(preds, 0).transpose(0,1).unsqueeze(0).view(1,3,200,200)
-                    distil_loss, dpm_loss = self.guidance(fwd_out)
+                    x_start, w = self.guidance(fwd_out)
                     #distil_loss = SpecifyGradient.apply(fwd_out, grad)
+                    #distil_loss = (w * (fwd_out-x_start)**2).mean()
+                    distil_loss = self.criterion(fwd_out, x_start)
                     loss = loss + distil_loss
-                    total_loss += dpm_loss.item()
-                    self.writer.add_scalar(f"dpm_loss", dpm_loss.item(), self.steps)
-                    self.writer.add_scalar(f"total_avg_loss", total_loss/(self.steps + 1), self.steps)
-                    pd.set_description(f'dpm_loss: {dpm_loss:.4f} ({total_loss/(self.steps+1):.4f})')
+                    total_loss += distil_loss.item()
+                    img_gt = (
+                                x_start
+                                .reshape(3, 200, 200)
+                                .cpu()
+                                .clamp(0, 1)
+                             )
+                    img_gt = torch.nan_to_num(img_gt, nan=0.0)
+                    img_gt_np: np.ndarray = (img_gt * 255.0).byte().numpy()
+                    if self.global_step % 100 == 0:
+                        self.writer.add_image(str(self.global_step), img_gt_np)
+                    self.writer.add_scalar(f"dpm_loss", distil_loss.item(), self.global_step)
+                    self.writer.add_scalar(f"total_avg_loss", total_loss/(self.global_step + 1), self.global_step)
+                    pd.set_description(f'dpm_loss: {distil_loss:.4f} ({total_loss/(self.global_step+1):.4f})')
                     self.optimizer.zero_grad(set_to_none=True)
-                    self.gscaler.scale(loss).backward()
-                    #loss.backward()
-                    #for k, v in self.model.state_dict().items():
-                    #    print(k, v.grad)
-                    #print(fwd_out.grad)
+                    loss.backward()
+                    #print(loss.requires_grad)
+                    #self.gscaler.scale(loss).backward()
+
+                    #for p in self.model.parameters():
+                    #    if p.grad != None:
+                    #        print(p.grad.norm())
+                    #
                     #print(loss.grad)
 
-                    self.gscaler.step(self.optimizer)
-                    #scale = self.gscaler.get_scale()
-                    self.gscaler.update()
-                    #self.timer.check("scaler-step")
-                    #if scale <= self.gscaler.get_scale() and self.scheduler is not None:
-                        #self.scheduler.step()
+                    #self.gscaler.step(self.optimizer)
 
-                    #self.optimizer.step()
-                    self.steps += 1
+                    #scale = self.gscaler.get_scale()
+                    #self.gscaler.update()
+                    #self.timer.check("scaler-step")
+
+                    #if scale <= self.gscaler.get_scale() and self.scheduler is not None:
+                    #    self.scheduler.step()
+
+                    self.optimizer.step()
+                    self.global_step += 1
                     pd.update(1)
 
-                    #self.compare_models(init_model, self.model)
-                    if self.steps == self.distill_steps:
+                    self.compare_models(init_model, self.model)
+                    if self.global_step == self.distill_steps:
                         break
             pd.close()
         self.generate()
@@ -383,6 +401,7 @@ class BaseTrainer(abc.ABC):
                 write_png(os.path.join(self.log_dir, depth_name + ".png"), out_depth_np)
 
         return summary, out_img_np, out_depth_np
+
 
     @abc.abstractmethod
     def validate(self):
