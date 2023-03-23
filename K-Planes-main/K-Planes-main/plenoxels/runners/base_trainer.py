@@ -216,8 +216,7 @@ class BaseTrainer(abc.ABC):
         batch_size = 4000
         #batch_iter = iter(self.train_data_loader)
         dataset = self.train_dataset
-        if self.global_step is None:
-            self.global_step = 0
+        self.global_step = 0
         total_loss = 0.0
         init_model = deepcopy(self.model)
         keys = []
@@ -279,7 +278,7 @@ class BaseTrainer(abc.ABC):
                     img_pred = torch.nan_to_num(img_pred, nan=0.0)
                     img_pred_np: np.ndarray = (img_pred * 255.0).byte().numpy()
                     self.writer.add_image(str(self.global_step), img_pred_np)
-                    
+
                     self.writer.add_scalar(f"dpm_loss", dpm_loss.item(), self.global_step)
                     self.writer.add_scalar(f"total_avg_loss", total_loss/(self.global_step + 1), self.global_step)
                     pd.set_description(f'dpm_loss: {dpm_loss:.4f} ({total_loss/(self.global_step+1):.4f})')
