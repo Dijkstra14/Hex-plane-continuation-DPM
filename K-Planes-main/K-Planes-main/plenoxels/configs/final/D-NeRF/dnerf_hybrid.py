@@ -19,7 +19,7 @@ config = {
  'batch_size': 4096,
  'scheduler_type': 'warmup_cosine',
  'optim_type': 'adam',
- 'lr': 0.1,
+ 'lr': 1.0,
 
  # Regularization
  'distortion_loss_weight': 0.00,
